@@ -87,6 +87,34 @@ async def test_a_genuine_repair_closes_the_order_with_a_ttwr(
     assert all(check.passed for check in report.checks)
 
 
+async def test_a_caller_that_omits_detected_at_still_gets_a_ttwr(
+    repository: InMemoryRepository, work_orders: WorkOrderService
+) -> None:
+    """The console's verify button sends no detection time, and should not have to.
+
+    The work order names its fault event, and the event knows when the network
+    went wrong. A closure with no TTWR is a closure nobody can be held to.
+    """
+    now = await build_history(
+        repository, fault_type=FaultType.VALVE_CLOSURE, asset_code="VLV-01"
+    )
+    event, order = await drive_to_assigned(repository, work_orders, now=now)
+    order = await _report_fixed(work_orders, order, at=now)
+
+    for injection in list(repository.fault_injections):
+        await repository.clear_fault_injection(injection.id)
+    later = now + timedelta(minutes=30)
+    await build_history(repository, now=later)
+
+    order, report = await work_orders.verify(
+        order, fault_type=FaultType.VALVE_CLOSURE, now=later
+    )
+
+    assert report.outcome is VerificationOutcome.PASSED
+    assert order.ttwr_minutes == pytest.approx(30.0, abs=1.0)
+    assert event.detected_at is not None
+
+
 async def test_closing_is_the_only_thing_that_writes_a_ttwr(
     repository: InMemoryRepository, work_orders: WorkOrderService
 ) -> None:

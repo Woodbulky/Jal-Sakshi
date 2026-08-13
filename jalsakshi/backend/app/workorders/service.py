@@ -473,10 +473,34 @@ class WorkOrderService:
         if order.status is not WorkOrderStatus.VERIFYING:
             order = await self.begin_verification(order, now=now)
 
+        # Time to water restored is measured from detection, and the work order
+        # already knows when its incident was detected. A caller that omits it
+        # — the console's verify button does — should still get the number,
+        # because a closure with no TTWR is a closure nobody can be held to.
+        if detected_at is None:
+            detected_at = await self._detected_at(order)
+
         report = await self._verification.verify(
             order, fault_type=fault_type, detected_at=detected_at, now=now
         )
         return await self.apply_verification(report, order, now=now), report
+
+    async def _detected_at(self, order: WorkOrder) -> datetime | None:
+        """When the incident was detected, not when the ticket was written.
+
+        The fault event is the truth: an operator may open a work order minutes
+        after the network went wrong, and TTWR measured from the ticket would
+        quietly flatter the system. Falls back to the work order's own creation
+        time when there is no linked event.
+        """
+        if order.fault_event_id:
+            try:
+                event = await self._repository.get_fault_event(order.fault_event_id)
+            except Exception:  # noqa: BLE001 -- a missing event must not block closure
+                event = None
+            if event is not None and event.detected_at is not None:
+                return event.detected_at
+        return order.created_at
 
     async def apply_verification(
         self,
