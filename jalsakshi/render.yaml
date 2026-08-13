@@ -1,0 +1,81 @@
+# Render blueprint for the JAL-SAKSHI backend.
+#
+# Every secret is `sync: false` — Render prompts for it and stores it, and none
+# of them live in this repository. The values with defaults here are policy
+# (SLA windows, detection thresholds), which belong in version control because
+# a village should be able to see what the system was told to do.
+
+services:
+  - type: web
+    name: jal-sakshi-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    region: singapore
+    healthCheckPath: /api/v1/health
+    # A single instance: the simulator and the realtime bus are in-process.
+    numInstances: 1
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: LOG_FORMAT
+        value: json
+
+      # -- Supabase. The only database; there is no local fallback. ---------
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+
+      # -- API ---------------------------------------------------------------
+      - key: API_PREFIX
+        value: /api/v1
+      - key: CORS_ORIGINS
+        sync: false          # the deployed console's origin
+      - key: PUBLIC_BASE_URL
+        sync: false          # so outbound payloads carry a callback URL
+
+      # -- demo / simulator --------------------------------------------------
+      - key: DEMO_SERVICE_AREA_ID
+        value: demo-vitpur
+      - key: SIMULATION_TICK_SECONDS
+        value: "10"
+      - key: SIMULATION_TIME_SCALE
+        value: "30"
+
+      # -- detection ---------------------------------------------------------
+      - key: DETECTION_BASELINE_HOURS
+        value: "48"
+      - key: DETECTION_Z_THRESHOLD
+        value: "3.5"
+      - key: DETECTION_MIN_CONFIDENCE
+        value: "0.55"
+      - key: DETECTION_AUTORUN
+        value: "true"
+
+      # -- work orders -------------------------------------------------------
+      - key: VERIFICATION_WINDOW_MINUTES
+        value: "20"
+      - key: ASSET_RECURRENCE_THRESHOLD
+        value: "3"
+
+      # -- LLM. Blank key degrades to the deterministic stub. -----------------
+      - key: LLM_PROVIDER
+        value: groq
+      - key: LLM_MODEL
+        value: llama-3.3-70b-versatile
+      - key: LLM_API_KEY
+        sync: false
+
+      # -- n8n / Telegram ----------------------------------------------------
+      - key: N8N_WEBHOOK_URL
+        sync: false
+      - key: N8N_WEBHOOK_SECRET
+        generateValue: true
+      - key: INBOUND_CALLBACK_SECRET
+        generateValue: true

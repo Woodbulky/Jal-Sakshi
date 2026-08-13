@@ -1,0 +1,23 @@
+# Antigravity Checklist
+
+- [ ] Landing page
+- [ ] Service-area selector
+- [ ] Responsive dashboard
+- [ ] MapLibre network map
+- [ ] Telemetry cards/charts
+- [ ] Normal/anomaly/critical states
+- [ ] Agent activity animation
+- [ ] Incident/work-order UI
+- [ ] SLA clock
+- [ ] Escalation timeline
+- [ ] Verification animation/state
+- [ ] TTWR card
+- [ ] Asset-health card
+- [ ] Fault-injection control
+- [ ] API base URL from environment
+- [ ] No secrets hardcoded
+- [ ] Loading states
+- [ ] Error states
+- [ ] Accessibility
+- [ ] No purple
+- [ ] No generic AI-template look

@@ -1,0 +1,22 @@
+# Secrets — never commit. Also covered by jalsakshi/.gitignore, kept here as a
+# second line of defence because .env holds the Supabase service-role key.
+.env
+.env.*
+!.env.example
+
+# Local Claude Code permissions, specific to one machine.
+.claude/settings.local.json
+
+# Dependencies and build output.
+.venv/
+node_modules/
+.next/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.tsbuildinfo
+
+# OS noise.
+Thumbs.db
+.DS_Store
