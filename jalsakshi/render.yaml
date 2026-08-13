@@ -75,7 +75,11 @@ services:
       # -- n8n / Telegram ----------------------------------------------------
       - key: N8N_WEBHOOK_URL
         sync: false
+      # Both secrets are shared with the n8n workflow, so Render must not
+      # invent them: it would generate a value n8n does not know and every
+      # signature check would fail. Render prompts; paste the same strings
+      # configured as JAL_SAKSHI_WEBHOOK_SECRET / JAL_SAKSHI_CALLBACK_SECRET.
       - key: N8N_WEBHOOK_SECRET
-        generateValue: true
+        sync: false
       - key: INBOUND_CALLBACK_SECRET
-        generateValue: true
+        sync: false

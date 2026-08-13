@@ -148,12 +148,14 @@ ignore file before you commit.
 | `CORS_ORIGINS` | leave `http://localhost:3000` for now, fix in Part 5 |
 | `PUBLIC_BASE_URL` | `https://jal-sakshi-api.onrender.com` (your service URL) |
 | `LLM_API_KEY` | your Groq key from console.groq.com (blank = deterministic stub, still demos fine) |
-| `N8N_WEBHOOK_URL` | leave blank for now, fix in Part 5 |
+| `N8N_WEBHOOK_URL` | `https://n8n.vaastusolutions.in/webhook/jal-sakshi` |
+| `N8N_WEBHOOK_SECRET` | the shared signing secret — same string as in `jalsakshi/.env` |
+| `INBOUND_CALLBACK_SECRET` | the shared callback secret — same string as in `jalsakshi/.env` |
 
-   `N8N_WEBHOOK_SECRET` and `INBOUND_CALLBACK_SECRET` are marked
-   `generateValue: true`, so Render invents them. **After the first deploy, open
-   the service → Environment and copy both values** — you must paste the same
-   strings into n8n or signature checks will fail.
+   Both secrets are `sync: false`, so Render prompts for them and stores them
+   without them ever entering this repository. They are **shared with n8n** —
+   paste the identical strings there (Part 5d) or every signature check fails.
+   Read the current values from `jalsakshi/.env`, which is gitignored.
 
 4. Deploy. Health check is `/api/v1/health`; Render marks the service live when
    it returns 200.
@@ -220,8 +222,8 @@ The nodes reference `$env.*`:
 
 | Name | Value |
 |---|---|
-| `JAL_SAKSHI_WEBHOOK_SECRET` | the `N8N_WEBHOOK_SECRET` Render generated |
-| `JAL_SAKSHI_CALLBACK_SECRET` | the `INBOUND_CALLBACK_SECRET` Render generated |
+| `JAL_SAKSHI_WEBHOOK_SECRET` | same string as `N8N_WEBHOOK_SECRET` in `jalsakshi/.env` |
+| `JAL_SAKSHI_CALLBACK_SECRET` | same string as `INBOUND_CALLBACK_SECRET` in `jalsakshi/.env` |
 | `JAL_SAKSHI_API_URL` | `https://jal-sakshi-api.onrender.com/api/v1` |
 | `JAL_SAKSHI_DEFAULT_CHAT_ID` | your Telegram chat or group id |
 
@@ -322,8 +324,8 @@ No agent can do any of these; they all need your accounts or your identity.
 - [ ] Telegram bot token from BotFather
 - [ ] Your Telegram chat / group id
 - [ ] Groq API key (optional)
-- [ ] Copy Render's generated `N8N_WEBHOOK_SECRET` and
-      `INBOUND_CALLBACK_SECRET` into n8n
+- [ ] Paste the same `N8N_WEBHOOK_SECRET` / `INBOUND_CALLBACK_SECRET` into
+      **both** Render and n8n (values live in the gitignored `jalsakshi/.env`)
 
 **Clicks nobody else can make**
 - [ ] Push the repo to GitHub and grant Render + Vercel access to it
@@ -355,9 +357,13 @@ cd C:\hacking\Jal-sakshi\JAL-SAKSHI_Agent_Handoff\jalsakshi-frontend
 npm run dev
 ```
 
-Your local `jalsakshi/.env` already has Supabase, the LLM key and
-`INBOUND_CALLBACK_SECRET` filled in. `N8N_WEBHOOK_URL` and `N8N_WEBHOOK_SECRET`
-are blank, which is why local runs compose Telegram messages but mark them
-`SKIPPED` instead of sending. Fill those two in once n8n is live if you want
-Telegram working against your laptop — and note that inbound replies will not
-reach `localhost` unless you tunnel it.
+Your local `jalsakshi/.env` is now complete: Supabase, the Groq key, the n8n
+webhook URL (`https://n8n.vaastusolutions.in/webhook/jal-sakshi`) and both
+shared secrets. So a local run will **really send Telegram messages** once the
+n8n workflow is active and configured with the matching secrets.
+
+Inbound replies are the half that will not work locally: n8n has to POST back to
+`JAL_SAKSHI_API_URL`, and your laptop's `localhost:8000` is not reachable from
+the internet. Either point n8n at the deployed Render URL, or expose your local
+backend with a tunnel (ngrok / Cloudflare Tunnel) and set `JAL_SAKSHI_API_URL`
+and `PUBLIC_BASE_URL` to that address.
