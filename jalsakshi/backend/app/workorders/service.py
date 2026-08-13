@@ -26,6 +26,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from app.analytics.pipeline import STATUS_RESOLVED
 from app.schemas.detection import Classification, FaultEvent
 from app.schemas.notification import NotificationEvent
 from app.schemas.simulation import FaultType
@@ -485,6 +486,34 @@ class WorkOrderService:
         )
         return await self.apply_verification(report, order, now=now), report
 
+    async def _resolve_incident(
+        self, order: WorkOrder, report: VerificationReport, *, now: datetime
+    ) -> None:
+        """Close the incident behind a closed work order.
+
+        `analytics/pipeline.py` states the rule: detection may move a fault
+        event to RESTORING, and only verification may resolve it. Nothing was
+        doing the resolving, so an incident whose repair had been confirmed by
+        sensors stayed open forever and the village's incident count only ever
+        climbed. Failures here are logged, never raised: the work order is
+        already closed on evidence, and bookkeeping must not undo that.
+        """
+        if not order.fault_event_id:
+            return
+        try:
+            await self._repository.update_fault_event(
+                order.fault_event_id,
+                status=STATUS_RESOLVED,
+                resolved_at=now,
+                ttwr_minutes=report.ttwr_minutes,
+            )
+        except Exception:  # noqa: BLE001 -- the closure stands regardless
+            logger.exception(
+                "could not resolve fault event %s for %s",
+                order.fault_event_id,
+                order.wo_code,
+            )
+
     async def _detected_at(self, order: WorkOrder) -> datetime | None:
         """When the incident was detected, not when the ticket was written.
 
@@ -553,6 +582,7 @@ class WorkOrderService:
                         work_order_id=updated.id,
                     )
                 await self._resolve_escalations(updated, now=now)
+                await self._resolve_incident(updated, report, now=now)
                 await self._notify(
                     NotificationEvent.WORK_ORDER_CLOSED,
                     updated,

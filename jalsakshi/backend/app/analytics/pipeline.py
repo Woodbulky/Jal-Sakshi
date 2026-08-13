@@ -48,6 +48,9 @@ logger = logging.getLogger(__name__)
 #: Statuses a fault event moves through while detection still owns it.
 STATUS_OPEN = "OPEN"
 STATUS_RESTORING = "RESTORING"
+#: Terminal, and only verification writes it: an incident is resolved when the
+#: sensors say so, never because a work order was ticked off.
+STATUS_RESOLVED = "RESOLVED"
 
 
 class DetectionError(RuntimeError):
@@ -464,4 +467,10 @@ class DetectionService:
         ]
 
 
-__all__ = ["DetectionError", "DetectionService", "STATUS_OPEN", "STATUS_RESTORING"]
+__all__ = [
+    "DetectionError",
+    "DetectionService",
+    "STATUS_OPEN",
+    "STATUS_RESOLVED",
+    "STATUS_RESTORING",
+]

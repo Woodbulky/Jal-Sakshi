@@ -87,6 +87,62 @@ async def test_a_genuine_repair_closes_the_order_with_a_ttwr(
     assert all(check.passed for check in report.checks)
 
 
+async def test_closing_on_evidence_also_resolves_the_incident(
+    repository: InMemoryRepository, work_orders: WorkOrderService
+) -> None:
+    """Detection may move an event to RESTORING; only verification resolves it.
+
+    Left undone, an incident whose repair the sensors had confirmed stayed open
+    forever and the village's incident count only ever climbed.
+    """
+    now = await build_history(
+        repository, fault_type=FaultType.VALVE_CLOSURE, asset_code="VLV-01"
+    )
+    event, order = await drive_to_assigned(repository, work_orders, now=now)
+    order = await _report_fixed(work_orders, order, at=now)
+
+    for injection in list(repository.fault_injections):
+        await repository.clear_fault_injection(injection.id)
+    later = now + timedelta(minutes=30)
+    await build_history(repository, now=later)
+
+    order, report = await work_orders.verify(
+        order, fault_type=FaultType.VALVE_CLOSURE, now=later
+    )
+
+    assert report.outcome is VerificationOutcome.PASSED
+    resolved = await repository.get_fault_event(event.id)
+    assert resolved is not None
+    assert resolved.status == "RESOLVED"
+    assert resolved.resolved_at is not None
+    assert resolved.ttwr_minutes == pytest.approx(30.0, abs=1.0)
+
+
+async def test_a_failed_verification_leaves_the_incident_open(
+    repository: InMemoryRepository, work_orders: WorkOrderService
+) -> None:
+    """A reopened work order must not leave a resolved incident behind it."""
+    now = await build_history(
+        repository, fault_type=FaultType.VALVE_CLOSURE, asset_code="VLV-01"
+    )
+    event, order = await drive_to_assigned(repository, work_orders, now=now)
+    order = await _report_fixed(work_orders, order, at=now)
+
+    # The valve is still shut: telemetry never recovers.
+    later = now + timedelta(minutes=30)
+    await build_history(repository, now=later)
+
+    order, report = await work_orders.verify(
+        order, fault_type=FaultType.VALVE_CLOSURE, now=later
+    )
+
+    assert report.outcome is not VerificationOutcome.PASSED
+    still_open = await repository.get_fault_event(event.id)
+    assert still_open is not None
+    assert still_open.status != "RESOLVED"
+    assert still_open.resolved_at is None
+
+
 async def test_a_caller_that_omits_detected_at_still_gets_a_ttwr(
     repository: InMemoryRepository, work_orders: WorkOrderService
 ) -> None:
