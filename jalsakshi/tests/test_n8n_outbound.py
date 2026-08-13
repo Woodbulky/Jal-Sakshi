@@ -234,6 +234,34 @@ async def test_an_unreachable_webhook_fails_the_message_not_the_dispatch(
     assert failed[0].error
 
 
+async def test_a_timeout_records_a_reason_even_though_it_stringifies_empty(
+    repository: InMemoryRepository, verification: VerificationService
+) -> None:
+    """`str(httpx.ReadTimeout())` is `''`, and an empty reason is no reason.
+
+    A phone on a tunnel times out occasionally, and FAILED with a blank error
+    sends an operator looking at signatures instead of at the network.
+    """
+
+    def stall(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("", request=request)
+
+    notifier = N8nNotifier(
+        repository,
+        make_settings(),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(stall)),
+    )
+    service = WorkOrderService(
+        repository, verification=verification, notifier=notifier
+    )
+
+    _, order = await drive_to_assigned(repository, service)
+
+    failed = await repository.list_notifications(work_order_id=order.id)
+    assert failed[0].status is NotificationStatus.FAILED
+    assert failed[0].error == "ReadTimeout"
+
+
 async def test_a_notifier_that_raises_outright_does_not_stop_the_lifecycle(
     repository: InMemoryRepository, verification: VerificationService
 ) -> None:

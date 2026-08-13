@@ -59,6 +59,20 @@ def sign(body: bytes, secret: str) -> str:
     return f"sha256={digest}"
 
 
+def _describe(error: Exception) -> str:
+    """A failure reason that is never empty.
+
+    `httpx.ReadTimeout` and its siblings stringify to `''`, so recording
+    `str(error)` left the row saying only FAILED — the one case where an
+    explanation is most wanted, and the one case there was none. The class name
+    is not prose, but "ReadTimeout" tells an operator to look at the network
+    rather than at the signature.
+    """
+    text = str(error).strip()
+    name = type(error).__name__
+    return (f"{name}: {text}" if text else name)[:500]
+
+
 def verify_signature(body: bytes, secret: str, presented: str | None) -> bool:
     """Constant-time check used by the inbound callback."""
     if not secret:
@@ -225,11 +239,12 @@ class N8nNotifier:
         try:
             response = await self._post(body, headers)
         except Exception as error:  # noqa: BLE001 -- the network is not our caller
+            detail = _describe(error)
             logger.warning(
-                "n8n webhook failed for %s: %s", payload.work_order_id, error
+                "n8n webhook failed for %s: %s", payload.work_order_id, detail
             )
             return await self._settle(
-                record, status=NotificationStatus.FAILED, error=str(error)[:500]
+                record, status=NotificationStatus.FAILED, error=detail
             )
 
         if response.status_code >= 400:
