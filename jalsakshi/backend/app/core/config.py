@@ -46,7 +46,12 @@ class Settings(BaseSettings):
     demo_telegram_chat_id: str = ""
 
     #: Wall-clock seconds between live simulator samples.
-    simulation_tick_seconds: float = 10.0
+    #:
+    #: Every tick runs detection inline, and detection is the costly part of the
+    #: loop. At 10s a small instance spent most of its CPU recomputing baselines
+    #: and fell behind; 15s leaves headroom without making the demo feel slow —
+    #: `simulation_time_scale` still moves tank level and meters visibly.
+    simulation_tick_seconds: float = 15.0
     #: Hydraulic integration runs this much faster than real time so tank level
     #: and meter counters move visibly in a 90-second demo. Timestamps stay real.
     simulation_time_scale: float = 30.0
@@ -105,12 +110,18 @@ class Settings(BaseSettings):
     agent_autorun: bool = True
     #: How many simulator ticks pass between automatic agent runs.
     #:
-    #: Not every tick. The agent's `observe` node runs detection a second time,
-    #: on top of `detection_autorun`, so a pass per tick doubles the detection
-    #: writes for no extra information. Three ticks is ~30s at the default
-    #: cadence: an incident still advances a step at a time faster than anyone
-    #: can read the trace, and the loop stays cheap while nothing is wrong.
-    agent_autorun_every_ticks: int = 3
+    #: Not every tick. The agent's `observe` node runs detection a second time
+    #: on top of `detection_autorun`, and while a work order sits in VERIFYING
+    #: each pass costs another `detection.run()` plus a feature build. Detection
+    #: recomputes a median/MAD day-shape over tens of thousands of readings, so
+    #: this is the expensive part of the loop, not the LLM.
+    #:
+    #: Nine ticks is ~135s at the default cadence. Three was tried first and
+    #: starved a 0.5-CPU instance: with an incident cycling through verification
+    #: the passes never stopped, ticks drifted from 10s to 3 minutes apart, and
+    #: the console reported the backend unreachable. An incident advancing every
+    #: couple of minutes is still faster than anyone reads the trace.
+    agent_autorun_every_ticks: int = 9
 
     #: Optional trained booster. Absent -> the signature rules run alone.
     lightgbm_model_path: str = ""

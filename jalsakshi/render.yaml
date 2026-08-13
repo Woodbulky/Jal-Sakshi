@@ -47,8 +47,10 @@ services:
       # to make every dispatch land in one real Telegram conversation.
       - key: DEMO_TELEGRAM_CHAT_ID
         sync: false
+      # Detection runs inline on every tick, so this is a CPU dial as much as a
+      # sampling one. 15s keeps a 0.5-CPU instance responsive.
       - key: SIMULATION_TICK_SECONDS
-        value: "10"
+        value: "15"
       - key: SIMULATION_TIME_SCALE
         value: "30"
 
@@ -77,10 +79,15 @@ services:
       # everything after it waited on POST /agent/run, so a visitor left alone
       # with the console saw a fault appear and nothing happen. Set false to
       # take manual control when presenting.
+      # Nine, not three. Detection runs inline on every tick and again inside
+      # each agent pass, and it recomputes a day-shape over tens of thousands
+      # of readings. At three, an incident cycling through verification starved
+      # this instance: ticks drifted from 10s to 3 minutes and the console
+      # reported the backend unreachable.
       - key: AGENT_AUTORUN
         value: "true"
       - key: AGENT_AUTORUN_EVERY_TICKS
-        value: "3"
+        value: "9"
 
       # -- LLM. Blank key degrades to the deterministic stub. -----------------
       - key: LLM_PROVIDER
