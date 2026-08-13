@@ -63,8 +63,12 @@ services:
         value: "true"
 
       # -- work orders -------------------------------------------------------
+      # 3 minutes is a demo setting. It keeps the property the window exists
+      # for — one lucky sample cannot close an incident — while staying short
+      # enough to watch. A real deployment wants 20: a valve that reopens
+      # slowly should not be declared restored in three minutes.
       - key: VERIFICATION_WINDOW_MINUTES
-        value: "20"
+        value: "3"
       - key: ASSET_RECURRENCE_THRESHOLD
         value: "3"
 
