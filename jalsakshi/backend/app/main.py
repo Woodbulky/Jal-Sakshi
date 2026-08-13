@@ -6,10 +6,12 @@ sensor-verified restoration out.
 
 from __future__ import annotations
 
+import asyncio
+import itertools
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import AsyncIterator
+from typing import AsyncIterator, Awaitable, Callable
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,6 +33,86 @@ from app.workorders.verification import VerificationService
 logger = logging.getLogger("jalsakshi")
 
 VERSION = "0.1.0"
+
+
+def build_tick_hook(
+    *,
+    settings: Settings,
+    detection: DetectionService | None,
+    agent: AgentRunner | None,
+    bus: EventBus,
+    in_flight: list[asyncio.Task[None]],
+) -> Callable[[datetime], Awaitable[None]]:
+    """What happens after every simulator tick: detect, then maybe decide.
+
+    Detection runs off the tick rather than a clock of its own, so a fault is
+    scored against exactly the sample that revealed it. In a field deployment
+    the same hook hangs off the telemetry ingest.
+
+    The agent runs here too, on a slower count. Before it did, the system was
+    autonomous up to the point of noticing and manual from there on: an anomaly
+    appeared by itself, and then nothing happened until somebody called
+    `POST /agent/run`. That endpoint still exists and still does exactly this,
+    which is the point — automatic mode is the same pass on a timer, not a
+    second implementation of the loop.
+
+    `in_flight` is passed in rather than closed over so the caller can cancel a
+    running pass at shutdown.
+    """
+    ticks = itertools.count(1)
+    every = max(settings.agent_autorun_every_ticks, 1)
+
+    async def _agent_pass(runner: AgentRunner) -> None:
+        """One automatic pass, off the tick's critical path."""
+        try:
+            state = await runner.run()
+        except Exception:  # noqa: BLE001 -- an agent fault must not stop time
+            logger.exception("automatic agent pass failed")
+            return
+        order = state.get("work_order")
+        await bus.publish(
+            "agent.run",
+            automatic=True,
+            work_order=order.wo_code if order else None,
+            status=order.status.value if order else None,
+            halted=state.get("halted"),
+            steps=len(state.get("trace", [])),
+        )
+
+    async def _after_tick(ts: datetime) -> None:
+        await bus.publish("simulation.tick", ts=ts.isoformat())
+        tick = next(ticks)
+
+        if settings.detection_autorun and detection is not None:
+            run = await detection.run()
+            await bus.publish(
+                "detection.run",
+                anomalies=len(run.anomalies),
+                untrusted_sensors=run.untrusted_sensors,
+                fault_type=run.classification.fault_type.value
+                if run.classification
+                else None,
+                confidence=run.classification.confidence
+                if run.classification
+                else None,
+                fault_event_id=run.fault_event.id if run.fault_event else None,
+            )
+
+        if not settings.agent_autorun or agent is None or tick % every:
+            return
+        # Spawned, not awaited: a dispatch pass calls the LLM, and the simulator
+        # must keep sampling at its own cadence rather than stalling behind a
+        # model. A pass still running when the next one is due is skipped, so
+        # passes never overlap and never queue up behind a slow provider.
+        in_flight[:] = [task for task in in_flight if not task.done()]
+        if in_flight:
+            logger.debug("agent pass still running; skipping tick %d", tick)
+            return
+        in_flight.append(
+            asyncio.create_task(_agent_pass(agent), name="jalsakshi-agent")
+        )
+
+    return _after_tick
 
 
 @asynccontextmanager
@@ -102,39 +184,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "agent loop ready (reasoner=%s)", build_reasoner(settings).name
         )
 
-    # Detection runs off the simulator's tick rather than a clock of its own,
-    # so a fault is scored against exactly the sample that revealed it. In a
-    # field deployment the same hook hangs off the telemetry ingest.
     detection: DetectionService | None = getattr(app.state, "detection", None)
     engine: SimulationEngine | None = getattr(app.state, "simulation", None)
+    agent: AgentRunner | None = getattr(app.state, "agent", None)
     bus: EventBus = app.state.events
     if engine is not None:
-
-        async def _after_tick(ts: datetime) -> None:
-            await bus.publish("simulation.tick", ts=ts.isoformat())
-            if not settings.detection_autorun or detection is None:
-                return
-            run = await detection.run()
-            await bus.publish(
-                "detection.run",
-                anomalies=len(run.anomalies),
-                untrusted_sensors=run.untrusted_sensors,
-                fault_type=run.classification.fault_type.value
-                if run.classification
-                else None,
-                confidence=run.classification.confidence
-                if run.classification
-                else None,
-                fault_event_id=run.fault_event.id if run.fault_event else None,
-            )
-
-        engine.on_tick = _after_tick
+        # Shutdown cancels whatever is still running; a pass holding a socket
+        # open would otherwise outlive the repository it is writing through.
+        app.state.agent_passes = []
+        engine.on_tick = build_tick_hook(
+            settings=settings,
+            detection=detection,
+            agent=agent,
+            bus=bus,
+            in_flight=app.state.agent_passes,
+        )
 
     yield
 
     engine = getattr(app.state, "simulation", None)
     if engine is not None:
         await engine.pause()
+    for task in getattr(app.state, "agent_passes", None) or ():
+        task.cancel()
+    app.state.agent_passes = None
     app.state.simulation = None
     app.state.agent = None
     app.state.work_orders = None

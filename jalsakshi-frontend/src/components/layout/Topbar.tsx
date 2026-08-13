@@ -3,6 +3,12 @@ import { useEffect, useState } from 'react';
 import { useBackendStatus } from '@/hooks/useBackendStatus';
 import { useIncidents } from '@/hooks/useIncidents';
 
+/** The field crew's Telegram group — where every dispatch actually lands.
+ *  A public invite link, so it belongs in the client bundle rather than an
+ *  env var: anyone looking at the console is meant to be able to join and
+ *  watch the loop close. */
+const FIELD_GROUP_URL = 'https://t.me/+TOa4JHNTkygwNjc1';
+
 export default function Topbar() {
   const [clock, setClock] = useState('');
   const backend = useBackendStatus();
@@ -57,10 +63,17 @@ export default function Topbar() {
         {clock}
       </span>
 
-      <button className="tb-ico" title="Open work orders">
+      <a
+        className="tb-ico"
+        href={FIELD_GROUP_URL}
+        target="_blank"
+        rel="noreferrer"
+        title="Open the field crew's Telegram group"
+        aria-label="Open the field crew's Telegram group"
+      >
         <svg width="16" height="16"><use href="#i-tg" /></svg>
         {summary?.open_work_orders ? <span className="cnt">{summary.open_work_orders}</span> : null}
-      </button>
+      </a>
       <button className="tb-ico" title="Open incidents">
         <svg width="16" height="16"><use href="#i-bell" /></svg>
         {summary?.open_incidents ? <span className="cnt">{summary.open_incidents}</span> : null}

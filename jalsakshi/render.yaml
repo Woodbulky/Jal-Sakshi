@@ -72,6 +72,16 @@ services:
       - key: ASSET_RECURRENCE_THRESHOLD
         value: "3"
 
+      # -- agent -------------------------------------------------------------
+      # The loop advances itself. Without this, detection ran automatically and
+      # everything after it waited on POST /agent/run, so a visitor left alone
+      # with the console saw a fault appear and nothing happen. Set false to
+      # take manual control when presenting.
+      - key: AGENT_AUTORUN
+        value: "true"
+      - key: AGENT_AUTORUN_EVERY_TICKS
+        value: "3"
+
       # -- LLM. Blank key degrades to the deterministic stub. -----------------
       - key: LLM_PROVIDER
         value: groq

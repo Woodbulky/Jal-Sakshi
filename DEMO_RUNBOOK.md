@@ -114,22 +114,26 @@ UNKNOWN rather than guess.
 
 ---
 
-## Step 4 — Run the agent
+## Step 4 — The agent decides
 
-**The agent does not run on a timer.** Detection is automatic; deciding what to
-do about it is not. Trigger a pass:
+**With `AGENT_AUTORUN=true` (the default) there is nothing to do here.** The
+loop advances itself every third simulator tick — roughly every 30 seconds —
+so over the next minute or two you will watch it classify → assess impact →
+open a work order → assign a crew member by skill → dispatch, one step at a
+time, without touching anything.
+
+Watch for the work order code (`WO-002` or later) — you need it in step 6.
+
+**When you are presenting and want to control the pace**, set
+`AGENT_AUTORUN=false` on Render and drive it yourself:
 
 ```bash
 curl -s -X POST $API/agent/run | python -m json.tool | head -40
 ```
 
-Console: **Agent & Comms → run.**
-
-Each pass advances the incident by one step, so **run it 3–4 times**, pausing to
-read the trace: classify → assess impact → open a work order → assign a crew
-member by skill → dispatch.
-
-Watch for the work order code (`WO-002` or later) — you need it in step 6.
+Console: **Agent & Comms → run.** Each pass advances the incident by one step,
+so run it 3–4 times, pausing to read the trace. It is the same pass the timer
+fires — manual mode is not a different code path.
 
 **Say out loud:** every pass is written to an append-only decision ledger —
 input, decision, evidence, tool called, state change. The LLM reasons; it never
@@ -190,12 +194,9 @@ it. Nothing a human types can close an incident in this system.
 
 ## Step 7 — Verification starts
 
-```bash
-curl -s -X POST $API/agent/run
-```
-
-Status becomes `VERIFYING`. Console: **Verification** page shows the window
-opening and which sensors must agree.
+Automatic: within ~30 seconds the status becomes `VERIFYING`. Console:
+**Verification** page shows the window opening and which sensors must agree.
+In manual mode, `curl -s -X POST $API/agent/run`.
 
 ---
 
@@ -203,15 +204,15 @@ opening and which sensors must agree.
 
 ### Ending A — the refusal (show this one)
 
-Do nothing. The valve is still closed, so telemetry keeps reading abnormal.
-After the window, run the agent again:
+Do nothing — literally nothing. The valve is still closed, so telemetry keeps
+reading abnormal, and when the window expires the loop reaches its own verdict:
 
 ```bash
-curl -s -X POST $API/agent/run
 curl -s $API/work-orders/WO-002
 ```
 
-The order **reopens** or reports `UNVERIFIABLE`.
+The order **reopens** or reports `UNVERIFIABLE`, and the reopen message lands in
+Telegram on its own.
 
 **Say out loud:** a human said it was fixed. The water disagreed. The system
 believed the water. That is the entire product.
@@ -225,15 +226,18 @@ curl -s -X POST $API/simulation/injections/clear-all
 ```
 
 Console: **Demo Control → clear.** Telemetry recovers over the next few ticks.
-Wait out the window, then:
+Wait out the window and check:
 
 ```bash
-curl -s -X POST $API/agent/run
 curl -s $API/work-orders/WO-002
 ```
 
 Status: `CLOSED`, with `ttwr_minutes` — time to water restored, measured from
 sensor evidence rather than from someone's report.
+
+**This is the moment to point at.** Nobody pressed anything. A human reported a
+repair, the sensors were asked to agree, and the incident closed on their
+evidence.
 
 **Best sequence if you have the time:** run Ending A, let it reopen, *then*
 clear the fault and let it close. Three minutes, and it tells the whole story.
@@ -258,7 +262,7 @@ ask why a repair was ordered and get an answer with evidence attached.
 | Symptom | Cause | Fix |
 |---|---|---|
 | No anomaly after 2 minutes | Simulator not running | `curl $API/simulation/status` — `readings_written` must be climbing |
-| Anomaly but no work order | The agent has not been run | `POST /agent/run`, 3–4 times |
+| Anomaly but no work order | Autorun is off, or the simulator stopped | Check `AGENT_AUTORUN`; or `POST /agent/run` 3–4 times |
 | No Telegram message | n8n down, or the phone is asleep | Check `/integrations/notifications` for the status and error |
 | Reply ignored | Not a reply, and no `WO-xxx` in the text | Send `WO-002 Fixed` |
 | Verification never resolves | Simulator stopped mid-window | Restart it; the window needs live samples |

@@ -264,11 +264,29 @@ those, and the workflow's fallback to `JAL_SAKSHI_DEFAULT_CHAT_ID` **does not
 kick in**, because it only applies when `chat_id` is empty and a placeholder
 string is not empty.
 
-Set **`DEMO_TELEGRAM_CHAT_ID`** to your real chat id, in `jalsakshi/.env`
+Set **`DEMO_TELEGRAM_CHAT_ID`** to one real chat id, in `jalsakshi/.env`
 locally and in Render's environment for the deployed backend. Every outbound
 message is then delivered to that one chat while the payload still says it is
 addressed to Ramesh or Kamla, so the routing logic stays visible in the demo.
 Blank keeps the roster's own ids, which is what a real deployment wants.
+
+Prefer a **group** over your own private chat. A bot cannot open a conversation
+with someone who has not started it first, so a judge given a link to this
+deployment would otherwise see the console and the API but never the Telegram
+half. Put the bot in a group, set the id to the group's (negative, e.g.
+`-5337976807`), and hand out the invite link: anyone who joins watches dispatch,
+field reply, and closure happen live. The workflow already expects this — its
+`Build field update` node drops group chatter that names no work order.
+
+Two consequences worth stating out loud when you present:
+
+- Telegram's default bot privacy mode only forwards **replies to the bot's own
+  messages** (and commands) out of a group. That is the path the workflow
+  parses, so it works — but a field update has to be sent as a *reply* to the
+  dispatch. Disable privacy in BotFather (`/setprivacy`) if you want bare
+  messages to work too.
+- Everyone in the group can act on a work order. Fine for a demo; say so, so it
+  does not read as an access-control gap.
 
 ---
 

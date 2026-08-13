@@ -90,6 +90,28 @@ class Settings(BaseSettings):
     asset_recurrence_threshold: int = 3
     asset_recurrence_window_days: float = 30.0
 
+    #: Advance the agent loop automatically, without waiting for someone to
+    #: call `POST /agent/run`.
+    #:
+    #: Detection has run on its own since Phase 2, so a fault surfaces by
+    #: itself — but everything downstream of noticing it (opening the work
+    #: order, assigning a crew member, dispatching) waited on a human pressing
+    #: a button. Half the system looked autonomous and half looked inert, and
+    #: nothing on screen explained the difference. A visitor left alone with
+    #: the console watched an anomaly appear and then nothing happen.
+    #:
+    #: Off restores the manual loop, which is what you want when presenting and
+    #: narrating one pass at a time.
+    agent_autorun: bool = True
+    #: How many simulator ticks pass between automatic agent runs.
+    #:
+    #: Not every tick. The agent's `observe` node runs detection a second time,
+    #: on top of `detection_autorun`, so a pass per tick doubles the detection
+    #: writes for no extra information. Three ticks is ~30s at the default
+    #: cadence: an incident still advances a step at a time faster than anyone
+    #: can read the trace, and the loop stays cheap while nothing is wrong.
+    agent_autorun_every_ticks: int = 3
+
     #: Optional trained booster. Absent -> the signature rules run alone.
     lightgbm_model_path: str = ""
     #: Weight given to the booster when one is loaded; the rules keep the rest.
