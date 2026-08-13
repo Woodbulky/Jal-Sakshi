@@ -273,10 +273,32 @@ Blank keeps the roster's own ids, which is what a real deployment wants.
 Prefer a **group** over your own private chat. A bot cannot open a conversation
 with someone who has not started it first, so a judge given a link to this
 deployment would otherwise see the console and the API but never the Telegram
-half. Put the bot in a group, set the id to the group's (negative, e.g.
-`-5337976807`), and hand out the invite link: anyone who joins watches dispatch,
-field reply, and closure happen live. The workflow already expects this — its
-`Build field update` node drops group chatter that names no work order.
+half. Put the bot in a group, set the id to the group's (negative), and hand out
+the invite link: anyone who joins watches dispatch, field reply, and closure
+happen live. The workflow already expects this — its `Build field update` node
+drops group chatter that names no work order.
+
+**A basic group's id changes without warning.** Adding or removing members —
+including re-adding the bot — can promote it to a *supergroup*, and Telegram
+rewrites the id from the short `-533…` form to the long `-100…` form when it
+does. Every send then fails, and it fails invisibly: n8n answers 200 even when
+its Telegram node errored, so the notification row still reads `SENT`. The only
+tell is a missing `external_message_id`.
+
+If dispatches stop arriving while the console looks healthy, ask Telegram
+directly:
+
+```bash
+curl -X POST "https://api.telegram.org/bot<TOKEN>/sendMessage" \
+  -H "Content-Type: application/json" \
+  -d '{"chat_id":<CURRENT_ID>,"text":"probe"}'
+```
+
+A migrated group answers `group chat was upgraded to a supergroup chat` and
+hands you the replacement in `parameters.migrate_to_chat_id`. Put that in
+`DEMO_TELEGRAM_CHAT_ID` and the loop resumes. Creating the group as a
+supergroup up front — or simply not changing its membership once the demo is
+configured — avoids the whole problem.
 
 Two consequences worth stating out loud when you present:
 

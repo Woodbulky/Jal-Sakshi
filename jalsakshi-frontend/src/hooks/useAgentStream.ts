@@ -2,7 +2,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { listAnomalies, listDecisions, runAgent } from '@/lib/api/endpoints';
 import { anomalyToAgentEvent, toAgentEvents, traceToAgentEvents } from '@/lib/adapters';
-import { AGENT_INITIAL_EVENTS } from '@/lib/mock-data';
 import type { AgentEvent } from '@/types/api';
 import type { AgentRunResponse } from '@/types/backend';
 import { useApiResource } from './useApiResource';
@@ -44,9 +43,11 @@ export function useAgentStream(intervalMs = 6_000) {
 
   const events = useMemo(() => {
     if (!live) {
-      // Nothing to read: keep the scripted Vitpur narration on screen rather
-      // than an empty panel, plus whatever this session has produced.
-      return [...AGENT_INITIAL_EVENTS, ...local];
+      // Only what this session actually produced. A scripted narration used to
+      // play here when the ledger could not be read, which put invented agent
+      // reasoning in the one panel whose entire purpose is to show the real
+      // decision trail. An empty panel is the honest answer.
+      return [...local];
     }
 
     const ledger = toAgentEvents(decisions.data ?? []);

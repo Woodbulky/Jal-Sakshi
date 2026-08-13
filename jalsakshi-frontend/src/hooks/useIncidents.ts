@@ -15,7 +15,6 @@ import {
   slaRemainingSeconds,
   toIncident,
 } from '@/lib/adapters';
-import { INCIDENTS as MOCK_INCIDENTS } from '@/lib/mock-data';
 import type { Incident, Severity } from '@/types/api';
 import type { BackendWorkOrder, DashboardSummary, FaultEvent } from '@/types/backend';
 import { useApiResource } from './useApiResource';
@@ -72,8 +71,15 @@ export function useIncidents({ intervalMs = 8_000 } = {}): IncidentsResult {
 
   const result = useMemo(() => {
     if (!incidents.data) {
+      // Nothing, not something invented. This console used to fall back to a
+      // sample incident list here, which meant an unreachable backend rendered
+      // four confident diagnoses against assets the network does not contain.
+      // On a system whose whole claim is that it reports evidence rather than
+      // guesses, plausible filler is the one failure mode that must not exist:
+      // an operator cannot tell it from a real reading. `live` is already false
+      // in this state, so the UI can say so honestly.
       return {
-        incidents: MOCK_INCIDENTS.map((i) => ({ ...i })),
+        incidents: [] as Incident[],
         severityByAsset: new Map<string, Severity>(),
       };
     }
