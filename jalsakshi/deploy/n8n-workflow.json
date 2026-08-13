@@ -20,7 +20,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Reject anything that is not this deployment.\n// N8N_WEBHOOK_SECRET must match the backend's.\nconst crypto = require('crypto');\nconst secret = $env.JAL_SAKSHI_WEBHOOK_SECRET;\nconst raw = $input.first().binary ? Buffer.from($input.first().binary.data.data, 'base64') : Buffer.from(JSON.stringify($input.first().json.body ?? $input.first().json));\nconst presented = ($input.first().json.headers?.['x-jalsakshi-signature'] ?? '').trim();\nconst expected = 'sha256=' + crypto.createHmac('sha256', secret).update(raw).digest('hex');\nif (!secret || presented !== expected) {\n  throw new Error('signature rejected');\n}\nreturn [{ json: $input.first().json.body ?? $input.first().json }];"
+        "jsCode": "// Reject anything that is not this deployment.\n// N8N_WEBHOOK_SECRET must match the backend's.\n//\n// require() is blocked in the Code sandbox unless the n8n server is started\n// with NODE_FUNCTION_ALLOW_BUILTIN=crypto, and $env is blocked unless\n// N8N_BLOCK_ENV_ACCESS_IN_NODE=false. Both are needed for this node.\nconst crypto = require('crypto');\nconst secret = $env.JAL_SAKSHI_WEBHOOK_SECRET;\nconst raw = $input.first().binary ? Buffer.from($input.first().binary.data.data, 'base64') : Buffer.from(JSON.stringify($input.first().json.body ?? $input.first().json));\nconst presented = ($input.first().json.headers?.['x-jalsakshi-signature'] ?? '').trim();\nconst expected = 'sha256=' + crypto.createHmac('sha256', secret).update(raw).digest('hex');\nif (!secret || presented !== expected) {\n  throw new Error('signature rejected');\n}\nreturn [{ json: $input.first().json.body ?? $input.first().json }];"
       },
       "id": "verify-signature",
       "name": "Verify signature",

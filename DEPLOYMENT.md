@@ -227,6 +227,18 @@ The nodes reference `$env.*`:
 | `JAL_SAKSHI_API_URL` | `https://jal-sakshi-api.onrender.com/api/v1` |
 | `JAL_SAKSHI_DEFAULT_CHAT_ID` | your Telegram chat or group id |
 
+**The two settings the Code nodes need on a self-hosted n8n.** Both are off by
+default and each produces a confusing one-line failure:
+
+| Server env var | Set it to | Without it |
+|---|---|---|
+| `NODE_FUNCTION_ALLOW_BUILTIN` | `crypto` | `Verify signature` dies with *Module 'crypto' is disallowed* |
+| `N8N_BLOCK_ENV_ACCESS_IN_NODE` | `false` | `$env.JAL_SAKSHI_WEBHOOK_SECRET` reads as undefined and every request is rejected |
+
+Set both, restart n8n, then re-run the failed execution. These are *server*
+variables (docker-compose `environment:` or the systemd unit), not workflow
+variables — n8n reads them at boot.
+
 **Important gotcha:** `$env` access inside Code nodes is **blocked on n8n Cloud**
 (and on self-hosted installs unless you set
 `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`). Your options:
