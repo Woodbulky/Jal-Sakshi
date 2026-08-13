@@ -204,12 +204,21 @@ export function ordersByEvent(orders: BackendWorkOrder[]): Map<string, BackendWo
   return map;
 }
 
-/** Seconds left on the SLA clock. Negative deadlines clamp to zero (breached). */
+/**
+ * Seconds left on the SLA clock. Negative deadlines clamp to zero (breached).
+ *
+ * A closed order has no clock: the commitment was met or missed when the
+ * sensors confirmed restoration, and a countdown still ticking beside
+ * `CLOSED` reads as work outstanding on work that is finished. `UNVERIFIABLE`
+ * deliberately keeps running — that order can still be verified later, so the
+ * village is still owed water.
+ */
 export function slaRemainingSeconds(
   order: BackendWorkOrder | undefined,
   now = Date.now(),
 ): number {
   if (!order?.sla_deadline) return 0;
+  if (order.status === 'CLOSED') return 0;
   return Math.max(0, Math.round((new Date(order.sla_deadline).getTime() - now) / 1000));
 }
 

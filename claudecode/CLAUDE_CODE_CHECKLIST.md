@@ -252,3 +252,73 @@ elapsed — which is the correct answer and is what the console draws.
 Frontend reads `NEXT_PUBLIC_API_URL` (`jalsakshi-frontend/.env.local`, default
 `http://localhost:8000/api/v1`); the backend already allows
 `http://localhost:3000` in `CORS_ORIGINS`. 193 backend tests green.
+
+## Phase 6 notes
+
+Deployment and integration against the real edges: Render (backend, Docker),
+Vercel (console), Supabase (the only database), and n8n on the user's own
+server. 244 tests green, all still offline.
+
+Live at
+`https://jal-sakshi-api.onrender.com` / `https://jal-sakshi.vercel.app`, with
+n8n at `https://n8n.vaastusolutions.in` — an Android phone running Termux →
+Ubuntu → Node → PM2, exposed through a Cloudflare Tunnel. That host shaped
+several of the fixes below, and it is worth stating plainly: the messaging
+layer runs on a phone, so the water logic's independence from messaging is not
+an academic property.
+
+What the first real deployment broke, and what it taught:
+
+- **`require('crypto')` is disallowed in the n8n Code sandbox** unless the
+  server sets `NODE_FUNCTION_ALLOW_BUILTIN=crypto`, and `$env` needs
+  `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`. `Verify signature` died on its third
+  line, so no dispatch ever reached Telegram — while the webhook still answered
+  `200` because the node was set to respond immediately, and the backend
+  faithfully recorded `SENT`. Two misconfigurations that concealed each other.
+  The lesson is in the workflow's comments now.
+- **A long value pasted into a phone terminal truncates silently.** A 32-char
+  signing secret arrived as 11 characters and surfaced only as
+  `signature rejected` — indistinguishable from a wrong secret. `${#VAR}`
+  before restarting is the cheap check.
+- **`str(httpx.ReadTimeout())` is `''`**, so `if error:` skipped the field and
+  a failed notification recorded no reason. Timeouts are the likeliest failure
+  for a phone behind a tunnel, so the one case that most needed an explanation
+  was the one case with none. `_describe` now falls back to the class name.
+- **TTWR was only computed when the caller passed `detected_at`**, and the
+  console's verify button does not. Every closure made from the UI reported no
+  time to water restored — the headline metric, blank, on the screen built to
+  show it. The service resolves it from the fault event now, deliberately not
+  from the work order's `created_at`: a ticket written late would flatter the
+  number.
+- **Nothing resolved the incident behind a closed work order.**
+  `analytics/pipeline.py` states the rule in its own docstring — detection may
+  move an event to `RESTORING`, only verification may resolve it — and no code
+  did the resolving. A repair confirmed by sensors closed the order and left
+  the incident open forever, so the console showed an open incident whose work
+  order was closed, and a village's incident count could only climb. Fixed with
+  both halves tested: a failed verification must still leave it open.
+- **Vitpur's roster carries fictional Telegram chat ids** that Telegram
+  rejects, and the workflow's default-chat fallback cannot help because a
+  placeholder string is not empty. `DEMO_TELEGRAM_CHAT_ID` redirects delivery
+  to one real chat while the payload still names the crew member it is
+  addressed to, so the routing stays visible in a demo.
+- **`generateValue: true` was wrong for the two shared secrets.** Render would
+  have invented values n8n does not know, and every signature check would have
+  failed for a reason nothing on either side could explain.
+
+Console polish, all of it the same principle — the numbers on screen must be
+real:
+
+- the sidebar's incident, work-order and escalation counts were literals
+  (`4`, `7`, `3`) and showed four incidents on an empty network. They read the
+  dashboard summary now, and a zero renders no pip rather than a nought;
+- "Last decision: 12s ago" was likewise a literal; it reads the ledger;
+- the SLA countdown kept running beside `CLOSED`, which reads as work
+  outstanding on finished work. A closed order reports how the commitment
+  ended instead. `UNVERIFIABLE` keeps counting on purpose: that order can still
+  be verified, so the village is still owed water.
+
+`DEPLOYMENT.md` covers the deploy itself and what only a human can do;
+`DEMO_RUNBOOK.md` is the full loop with the console action and the `curl`
+equivalent side by side. `VERIFICATION_WINDOW_MINUTES` ships at 3 for the
+demo — a real deployment wants 20, and the comment in `render.yaml` says so.

@@ -113,7 +113,12 @@ function WorkOrdersView() {
             ['Created', view?.created_at ?? '—', 'mono'],
             ['SLA deadline', view?.sla_deadline ?? '—', 'mono', 'var(--crit)'],
             ['Current state', view?.current_state ?? '—', '', 'var(--warn)'],
-            ['Time remaining', wo.slaRemaining ? slaStr(wo.slaRemaining) : '—', 'mono', 'var(--crit)'],
+            // A closed order reports how the commitment ended, not a countdown:
+            // a clock still running beside CLOSED reads as work outstanding.
+            order?.status === 'CLOSED'
+              ? ['Time remaining', order.sla_breached ? 'Closed · SLA breached' : 'Closed within SLA', '',
+                 order.sla_breached ? 'var(--crit)' : 'var(--good)']
+              : ['Time remaining', wo.slaRemaining ? slaStr(wo.slaRemaining) : '—', 'mono', 'var(--crit)'],
             ['Priority', order?.priority ?? '—', '', 'var(--crit)'],
           ] as Array<[string, string, string, string?]>).map(([label, value, cls, color], i) => (
             <div key={i}>
