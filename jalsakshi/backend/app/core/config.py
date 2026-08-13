@@ -49,12 +49,20 @@ class Settings(BaseSettings):
     #:
     #: Every tick runs detection inline, and detection is the costly part of the
     #: loop. At 10s a small instance spent most of its CPU recomputing baselines
-    #: and fell behind; 15s leaves headroom without making the demo feel slow —
-    #: `simulation_time_scale` still moves tank level and meters visibly.
+    #: and fell behind; 15s leaves headroom without making the demo feel slow.
     simulation_tick_seconds: float = 15.0
     #: Hydraulic integration runs this much faster than real time so tank level
     #: and meter counters move visibly in a 90-second demo. Timestamps stay real.
-    simulation_time_scale: float = 30.0
+    #:
+    #: **`tick_seconds * time_scale` must stay 300.** One tick has to advance
+    #: simulated time by exactly the 5-minute step the baseline was backfilled
+    #: at, because energy is reported as kWh *per interval* and is only
+    #: comparable while that interval is constant. Raising the tick from 10 to
+    #: 15 without dropping the scale from 30 to 20 stretched each sample to
+    #: 450s, inflated every energy reading by half, and detection did the right
+    #: thing with it: a 26-sigma anomaly on SNS-PMP-01-ENR and a spurious
+    #: incident on a network where nothing was wrong.
+    simulation_time_scale: float = 20.0
 
     # -- detection ---------------------------------------------------------
     #: How much history the diurnal baseline is learned from.

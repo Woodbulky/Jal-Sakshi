@@ -34,3 +34,27 @@ def test_supabase_configured_requires_the_service_role_key() -> None:
     assert Settings(
         supabase_url="https://x.supabase.co", supabase_service_role_key="secret"
     ).supabase_configured
+
+
+def test_a_tick_advances_simulated_time_by_the_backfill_step() -> None:
+    """`tick_seconds * time_scale` must equal the baseline's sampling step.
+
+    Energy is reported as kWh *per interval*, so it is only comparable while
+    that interval is constant. Raising the tick from 10s to 15s without
+    dropping the time scale from 30 to 20 stretched every sample to 450s of
+    simulated time, inflated each energy reading by half against a baseline
+    learned at 300s, and detection opened a 26-sigma incident on a network
+    where nothing was wrong. It was right to; the configuration was lying to
+    it.
+
+    This guards the product, not either factor: tune the tick for CPU and the
+    scale for pace, but keep them multiplying to the backfill step.
+    """
+    from app.simulation.engine import DEFAULT_STEP_MINUTES
+
+    settings = Settings(_env_file=None, supabase_url="", supabase_service_role_key="")
+
+    assert (
+        settings.simulation_tick_seconds * settings.simulation_time_scale
+        == DEFAULT_STEP_MINUTES * 60
+    )

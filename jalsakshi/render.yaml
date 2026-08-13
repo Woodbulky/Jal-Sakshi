@@ -49,10 +49,15 @@ services:
         sync: false
       # Detection runs inline on every tick, so this is a CPU dial as much as a
       # sampling one. 15s keeps a 0.5-CPU instance responsive.
+      #
+      # KEEP THE PRODUCT AT 300. One tick must advance simulated time by the
+      # 5-minute step the baseline was backfilled at: energy is kWh per
+      # interval, so a longer tick silently inflates every energy reading and
+      # detection opens an incident on a healthy network.
       - key: SIMULATION_TICK_SECONDS
         value: "15"
       - key: SIMULATION_TIME_SCALE
-        value: "30"
+        value: "20"
 
       # -- detection ---------------------------------------------------------
       - key: DETECTION_BASELINE_HOURS
