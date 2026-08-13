@@ -196,7 +196,9 @@ class N8nNotifier:
             asset_id=asset_code,
             fault_type=fault_type.value if fault_type else None,
             assigned_to=recipient or order.assigned_person,
-            chat_id=chat_id,
+            # The recipient's *name* stays the roster's, because the message is
+            # still addressed to Ramesh; only the delivery target is redirected.
+            chat_id=self._settings.demo_telegram_chat_id or chat_id,
             sla_hours=order.sla_hours,
             households_affected=households_affected,
             priority=order.priority.value,

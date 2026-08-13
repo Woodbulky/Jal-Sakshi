@@ -38,6 +38,13 @@ class Settings(BaseSettings):
 
     demo_service_area_id: str = "demo-vitpur"
 
+    #: Every outbound message goes to this Telegram chat instead of the crew
+    #: member's own id. The Vitpur roster is fictional, so its chat ids are
+    #: placeholders that Telegram would reject; in a demo there is one real
+    #: chat — the presenter's — and every dispatch has to land in it. Blank
+    #: keeps the roster's own ids, which is what a real deployment wants.
+    demo_telegram_chat_id: str = ""
+
     #: Wall-clock seconds between live simulator samples.
     simulation_tick_seconds: float = 10.0
     #: Hydraulic integration runs this much faster than real time so tank level

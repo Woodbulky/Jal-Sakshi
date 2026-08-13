@@ -247,17 +247,16 @@ in Render.
 ### 5f. The chat-id problem you will hit
 
 `backend/app/seed/roster.py` ships placeholder chat ids —
-`"demo-valve-operator"`, `"demo-pump-operator"`, and so on. Telegram will reject
+`"demo-valve-operator"`, `"demo-pump-operator"`, and so on. Telegram rejects
 those, and the workflow's fallback to `JAL_SAKSHI_DEFAULT_CHAT_ID` **does not
 kick in**, because it only applies when `chat_id` is empty and a placeholder
-string is not empty. Fix it one of two ways:
+string is not empty.
 
-- **Recommended:** edit `roster.py` and replace all seven `telegram_chat_id`
-  values with your real chat/group id, commit, let Render redeploy. Every
-  dispatch then lands in your demo group.
-- **Faster:** in the `Send to field actor` node, change the Chat ID expression
-  from `={{ $json.chat_id || $env.JAL_SAKSHI_DEFAULT_CHAT_ID }}` to your literal
-  chat id. Same effect, but the routing logic stops being visible in the demo.
+Set **`DEMO_TELEGRAM_CHAT_ID`** to your real chat id, in `jalsakshi/.env`
+locally and in Render's environment for the deployed backend. Every outbound
+message is then delivered to that one chat while the payload still says it is
+addressed to Ramesh or Kamla, so the routing logic stays visible in the demo.
+Blank keeps the roster's own ids, which is what a real deployment wants.
 
 ---
 

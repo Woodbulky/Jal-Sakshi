@@ -43,6 +43,10 @@ services:
       # -- demo / simulator --------------------------------------------------
       - key: DEMO_SERVICE_AREA_ID
         value: demo-vitpur
+      # Blank = use the roster's chat ids. Set it to the presenter's chat id
+      # to make every dispatch land in one real Telegram conversation.
+      - key: DEMO_TELEGRAM_CHAT_ID
+        sync: false
       - key: SIMULATION_TICK_SECONDS
         value: "10"
       - key: SIMULATION_TIME_SCALE
