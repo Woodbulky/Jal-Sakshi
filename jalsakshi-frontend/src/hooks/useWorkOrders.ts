@@ -17,6 +17,7 @@ import {
   toEscalationEntries,
   toWorkOrderView,
 } from '@/lib/adapters';
+import { ApiError } from '@/lib/api/client';
 import type { VerificationReport } from '@/types/backend';
 import { useApiResource } from './useApiResource';
 import { useNow } from './useNow';
@@ -71,6 +72,7 @@ export function useWorkOrder(ref: string | null, { intervalMs = 6_000 } = {}) {
   const now = useNow(1000);
   const [report, setReport] = useState<VerificationReport | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
 
   const view = useMemo(() => {
     if (!detail.data) return null;
@@ -95,11 +97,23 @@ export function useWorkOrder(ref: string | null, { intervalMs = 6_000 } = {}) {
   const act = useCallback(
     async <T,>(name: string, fn: () => Promise<T>): Promise<T | null> => {
       setBusy(name);
+      setLastError(null);
       try {
         const result = await fn();
         detail.refresh();
         return result;
-      } catch {
+      } catch (error) {
+        // The refusal is the interesting part. Swallowing it left the primary
+        // button on this page looking simply dead: "Run verification" on an
+        // order nobody has reported on is a 400 that names the states the
+        // lifecycle would accept, and the operator saw none of it.
+        setLastError(
+          error instanceof ApiError
+            ? error.detail
+            : error instanceof Error
+              ? error.message
+              : String(error),
+        );
         return null;
       } finally {
         setBusy(null);
@@ -139,6 +153,8 @@ export function useWorkOrder(ref: string | null, { intervalMs = 6_000 } = {}) {
     slaRemaining: slaRemainingSeconds(detail.data?.work_order, now),
     report,
     busy,
+    /** The last refusal from the backend, verbatim. Show it. */
+    lastError,
     live: detail.data !== null,
     loading: detail.loading,
     error: detail.error,

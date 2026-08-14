@@ -103,6 +103,13 @@ function WorkOrdersView() {
         </div>
       </div>
 
+      {wo.lastError && (
+        <div className="callout co-warn" style={{ marginBottom: 12 }}>
+          <svg width="17" height="17" style={{ color: 'var(--warn)', flex: 'none', marginTop: 1 }}><use href="#i-alert" /></svg>
+          <span className="t-sm" style={{ color: '#95622A' }}>{wo.lastError}</span>
+        </div>
+      )}
+
       {/* Definition list */}
       <div className="card" style={{ marginBottom: 12 }}>
         <div className="dl" style={{ borderRadius: 'var(--r-md)', overflow: 'hidden' }}>
