@@ -32,6 +32,28 @@ from app.schemas.workorder import (
 )
 from app.workorders.state_machine import assert_transition
 
+#: Anything the repository stores and can be asked to patch by keyword.
+_Model = Any
+
+
+def _patched(model: _Model, fields: dict[str, Any]) -> _Model:
+    """Apply `fields` to `model` the way a round trip through Postgres would.
+
+    `model_copy(update=...)` does not validate: hand it
+    ``fault_type="VALVE_CLOSURE"`` and the model afterwards holds a bare `str`
+    where its annotation promises a `FaultType`, and the next
+    ``.value`` on it raises `AttributeError`. `SupabaseRepository` never has
+    this problem because every update re-reads the row through
+    `model_validate`, so the enum comes back an enum.
+
+    Callers legitimately pass enum *values* -- `DetectionService._persist`
+    writes `fault_type=classification.fault_type.value` because that is what
+    the database column wants -- so the difference is not a caller bug. It is
+    this double being laxer than the thing it doubles, which is the one way a
+    test suite can be green about code that crashes in the app.
+    """
+    return type(model).model_validate({**model.model_dump(), **fields})
+
 
 class InMemoryRepository:
     def __init__(
@@ -236,7 +258,7 @@ class InMemoryRepository:
         for index, anomaly in enumerate(self.anomalies):
             if anomaly.id != anomaly_id:
                 continue
-            updated = anomaly.model_copy(update=fields)
+            updated = _patched(anomaly, fields)
             self.anomalies[index] = updated
             return updated
         return None
@@ -277,7 +299,7 @@ class InMemoryRepository:
         for index, event in enumerate(self.fault_events):
             if event.id != fault_event_id:
                 continue
-            updated = event.model_copy(update=fields)
+            updated = _patched(event, fields)
             self.fault_events[index] = updated
             return updated
         return None
@@ -333,8 +355,8 @@ class InMemoryRepository:
                     <= order.reopen_count
                 ):
                     fields = {**fields, "reopen_count": order.reopen_count + 1}
-            updated = order.model_copy(
-                update={**fields, "updated_at": datetime.now(timezone.utc)}
+            updated = _patched(
+                order, {**fields, "updated_at": datetime.now(timezone.utc)}
             )
             self.work_orders[index] = updated
             return updated
@@ -383,7 +405,7 @@ class InMemoryRepository:
         for index, assignment in enumerate(self.assignments):
             if assignment.id != assignment_id:
                 continue
-            updated = assignment.model_copy(update=fields)
+            updated = _patched(assignment, fields)
             self.assignments[index] = updated
             return updated
         return None
@@ -410,7 +432,7 @@ class InMemoryRepository:
         for index, escalation in enumerate(self.escalations):
             if escalation.id != escalation_id:
                 continue
-            updated = escalation.model_copy(update=fields)
+            updated = _patched(escalation, fields)
             self.escalations[index] = updated
             return updated
         return None
@@ -443,7 +465,7 @@ class InMemoryRepository:
         for index, notification in enumerate(self.notifications):
             if notification.id != notification_id:
                 continue
-            updated = notification.model_copy(update=fields)
+            updated = _patched(notification, fields)
             self.notifications[index] = updated
             return updated
         return None
