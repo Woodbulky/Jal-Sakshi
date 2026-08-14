@@ -74,6 +74,12 @@ class SimulationEngine:
         self.last_tick_at: datetime | None = None
         self.readings_written = 0
 
+        #: The accelerated timeline. It advances one tick's worth per tick, not
+        #: with the wall clock, so ticking by hand develops a fault exactly as
+        #: far as letting the loop run does.
+        self._sim_clock: datetime | None = None
+        self._injection_sim_start: dict[str, datetime] = {}
+
     # -- wiring ------------------------------------------------------------
     async def load(self) -> None:
         """Resolve the demo service area and cache its codes -> ids."""
@@ -169,6 +175,32 @@ class SimulationEngine:
             )
         return readings
 
+    def _advance_sim_clock(
+        self, injections: list[FaultInjection], ts: datetime, dt_seconds: float
+    ) -> dict[str, float]:
+        """Move the accelerated clock on one tick and age every active fault.
+
+        A fault first seen on this tick is dated to the start of it, so one tick
+        of onset has passed by the time the readings are written. That is what
+        lets `inject -> tick -> tick -> detect` present a developed fault: two
+        ticks are two tick-lengths of simulated time whether they are half a
+        second or half a minute apart in the real world.
+        """
+        step = timedelta(seconds=dt_seconds)
+        self._sim_clock = (self._sim_clock or ts) + step
+
+        active = {injection.id for injection in injections}
+        for stale in self._injection_sim_start.keys() - active:
+            del self._injection_sim_start[stale]
+
+        ages: dict[str, float] = {}
+        for injection in injections:
+            started = self._injection_sim_start.setdefault(
+                injection.id, self._sim_clock - step
+            )
+            ages[injection.id] = (self._sim_clock - started).total_seconds() / 60.0
+        return ages
+
     async def tick(self, ts: datetime | None = None) -> int:
         """Generate and persist one sample for every sensor."""
         await self.load()
@@ -176,13 +208,15 @@ class SimulationEngine:
 
         async with self._lock:
             injections = await self._active_injections(ts)
+            dt_seconds = self.tick_seconds * self.time_scale
+            sim_ages = self._advance_sim_clock(injections, ts, dt_seconds)
             effect = resolve_effect(
                 injections,
                 ts,
                 asset_codes=self._asset_codes,
                 time_scale=self.time_scale,
+                sim_ages=sim_ages,
             )
-            dt_seconds = self.tick_seconds * self.time_scale
             result = self._model.step(ts, dt_seconds=dt_seconds, effect=effect)
             readings = self._to_readings(ts, result.values, result.quality)
 

@@ -98,6 +98,29 @@ async def test_an_injected_fault_shows_up_in_the_telemetry(
     assert after < 0.2 * before
 
 
+async def test_back_to_back_ticks_develop_a_fault_as_far_as_timed_ones(
+    engine: SimulationEngine, repository: InMemoryRepository
+) -> None:
+    """The demo console ticks twice in the same second; the valve must still shut.
+
+    Onset rides the simulated clock, which advances one tick's worth per tick.
+    Deriving it from wall-clock elapsed instead left the valve ~3% closed here,
+    so detection scored a healthy network and raised nothing.
+    """
+    zone_a = next(s for s in repository.sensors if s.sensor_code == "SNS-ZONE-A-FLW")
+
+    await engine.tick()
+    before = (await repository.latest_readings([zone_a.id]))[zone_a.id].value
+
+    # Default 6-minute onset, and two ticks worth 5 simulated minutes each.
+    await engine.inject(fault_type=FaultType.VALVE_CLOSURE, asset_ref="VLV-01")
+    await engine.tick()
+    await engine.tick()
+
+    after = (await repository.latest_readings([zone_a.id]))[zone_a.id].value
+    assert after < 0.2 * before
+
+
 async def test_clearing_a_fault_restores_the_telemetry(
     engine: SimulationEngine, repository: InMemoryRepository
 ) -> None:

@@ -64,25 +64,39 @@ class FaultEffect:
         return sum(self.leak_lpm.values())
 
 
-def _ramp(injection: FaultInjection, ts: datetime, time_scale: float) -> float:
+def _ramp(
+    injection: FaultInjection,
+    ts: datetime,
+    time_scale: float,
+    sim_age_minutes: float | None = None,
+) -> float:
     """0.0 just before onset, 1.0 once the fault is fully developed.
 
     `ramp_minutes` is *simulated* time, so it runs on the same accelerated clock
     as the hydraulic integration. At the default 30x, a six-minute valve closure
     develops in twelve wall-clock seconds -- which is what the 90-second demo
     script needs.
+
+    `sim_age_minutes` is that clock read directly, and the engine passes it
+    because only the engine knows it. Deriving the age from wall-clock elapsed
+    is right only while ticks arrive exactly `tick_seconds` apart: the hydraulic
+    integration advances a fixed tick's worth per call, so a hand-driven tick
+    would otherwise move the water without moving the fault.
     """
     minutes = float(
         injection.params.get(
             "ramp_minutes", _DEFAULT_RAMP_MINUTES.get(injection.fault_type, 3.0)
         )
     )
-    elapsed = (ts - injection.started_at).total_seconds() * max(time_scale, 1e-9) / 60.0
-    if elapsed < 0:
+    if sim_age_minutes is None:
+        sim_age_minutes = (
+            (ts - injection.started_at).total_seconds() * max(time_scale, 1e-9) / 60.0
+        )
+    if sim_age_minutes < 0:
         return 0.0
     if minutes <= 0:
         return 1.0  # a power cut has no onset
-    return min(1.0, elapsed / minutes)
+    return min(1.0, sim_age_minutes / minutes)
 
 
 def _blend(normal: float, faulted: float, progress: float) -> float:
@@ -103,21 +117,25 @@ def resolve_effect(
     *,
     asset_codes: dict[str, str] | None = None,
     time_scale: float = 1.0,
+    sim_ages: dict[str, float] | None = None,
 ) -> FaultEffect:
     """Combine every fault active at `ts` into one set of physical deltas.
 
     `asset_codes` maps asset id -> asset code, because injections reference
     assets by id once persisted. `time_scale` matches the engine's, so fault
-    onset and hydraulic integration advance together.
+    onset and hydraulic integration advance together. `sim_ages` maps injection
+    id -> age in simulated minutes and takes precedence when the caller keeps
+    that clock itself.
     """
     effect = FaultEffect()
     asset_codes = asset_codes or {}
+    sim_ages = sim_ages or {}
 
     for injection in injections:
         if not is_active_at(injection, ts):
             continue
 
-        progress = _ramp(injection, ts, time_scale)
+        progress = _ramp(injection, ts, time_scale, sim_ages.get(injection.id))
         if progress <= 0.0:
             continue
 
