@@ -83,13 +83,17 @@ export default function DemoControlPage() {
       setStage(3, 'done');
       setStage(4, 'now');
       const pass = await agent.run();
-      setStage(4, 'done');
+      setStage(4, pass ? 'done' : 'now');
       setStatusText(
-        pass?.halted
-          ? `Agent halted: ${pass.halted}`
-          : pass?.work_order
-            ? `Work order ${pass.work_order.wo_code} dispatched.`
-            : 'Agent pass complete — nothing further to do this tick.',
+        // A null pass is a *failed* one. Reporting it as "nothing further to
+        // do" hid a dispatch that never happened behind a reassuring sentence.
+        !pass
+          ? 'Agent pass failed — the incident is diagnosed but no crew was dispatched. See the activity feed.'
+          : pass.halted
+            ? `Agent halted: ${pass.halted}`
+            : pass.work_order
+              ? `Work order ${pass.work_order.wo_code} dispatched.`
+              : 'Agent pass complete — nothing further to do this tick.',
       );
     },
     [sim, agent],

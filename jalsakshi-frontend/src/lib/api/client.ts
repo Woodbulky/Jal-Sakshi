@@ -11,6 +11,16 @@ export const API_BASE =
 /** Default request timeout. The console polls, so a slow request is a dead one. */
 const TIMEOUT_MS = 12_000;
 
+/**
+ * For the few calls that do real work rather than read a table.
+ *
+ * An agent pass dispatches a crew, and dispatch waits on n8n delivering a
+ * Telegram message over a tunnel that may be cold. At the polling timeout the
+ * browser aborts, the server cancels the pass with it, and the work order is
+ * never written -- the incident is left diagnosed but unassigned.
+ */
+export const SLOW_TIMEOUT_MS = 90_000;
+
 export class ApiError extends Error {
   readonly status: number;
   readonly detail: string;
@@ -36,6 +46,13 @@ export class ApiError extends Error {
 
 type Query = Record<string, string | number | boolean | null | undefined>;
 
+type RequestOptions = {
+  query?: Query;
+  body?: unknown;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+};
+
 function withQuery(path: string, query?: Query): string {
   if (!query) return path;
   const params = new URLSearchParams();
@@ -50,11 +67,11 @@ function withQuery(path: string, query?: Query): string {
 async function request<T>(
   method: 'GET' | 'POST',
   path: string,
-  { query, body, signal }: { query?: Query; body?: unknown; signal?: AbortSignal } = {},
+  { query, body, signal, timeoutMs = TIMEOUT_MS }: RequestOptions = {},
 ): Promise<T> {
   const url = `${API_BASE}${withQuery(path, query)}`;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   // Caller-cancelled (component unmounted) and timed-out both abort this fetch.
   const onAbort = () => controller.abort();
@@ -96,14 +113,11 @@ async function request<T>(
 
 export function apiGet<T>(
   path: string,
-  options: { query?: Query; signal?: AbortSignal } = {},
+  options: Omit<RequestOptions, 'body'> = {},
 ): Promise<T> {
   return request<T>('GET', path, options);
 }
 
-export function apiPost<T>(
-  path: string,
-  options: { query?: Query; body?: unknown; signal?: AbortSignal } = {},
-): Promise<T> {
+export function apiPost<T>(path: string, options: RequestOptions = {}): Promise<T> {
   return request<T>('POST', path, options);
 }

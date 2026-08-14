@@ -4,7 +4,7 @@
    One function per route in shared/API_CONTRACT.md. Nothing here transforms
    data: the shapes are exactly what FastAPI returns (see types/backend.ts).
    ============================================================ */
-import { apiGet, apiPost } from './client';
+import { apiGet, apiPost, SLOW_TIMEOUT_MS } from './client';
 import type {
   AgentRunResponse,
   Anomaly,
@@ -202,8 +202,9 @@ export const reopenWorkOrder = (
 ) => apiPost<BackendWorkOrder>(`/work-orders/${ref}/reopen`, { query: { reason }, ...o });
 
 // ─── Agent ───────────────────────────────────────────────────
+/** Dispatches a crew, so it waits on n8n. Never run it on the polling budget. */
 export const runAgent = (o: Opt = {}) =>
-  apiPost<AgentRunResponse>('/agent/run', o);
+  apiPost<AgentRunResponse>('/agent/run', { timeoutMs: SLOW_TIMEOUT_MS, ...o });
 
 export const listDecisions = (
   { workOrderId, faultEventId, limit = 100, ...o }:
@@ -233,6 +234,7 @@ export const backfillSimulation = (
 ) =>
   apiPost<BackfillResult>('/simulation/backfill', {
     query: { hours, step_minutes: stepMinutes },
+    timeoutMs: SLOW_TIMEOUT_MS,
     ...o,
   });
 
