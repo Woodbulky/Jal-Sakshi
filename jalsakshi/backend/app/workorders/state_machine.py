@@ -5,6 +5,13 @@ JAL-SAKSHI — that an incident is closed by sensor evidence rather than by
 someone saying "done" — follows from that single edge being absent everywhere
 else in this table.
 
+`RESTORATION_DETECTED` is reachable from `ASSIGNED`, `ACKNOWLEDGED` and
+`REOPENED` as well as from `IN_REPAIR`, because restoration is observed on the
+instruments, not reported by the crew. A valve reopened by someone who never
+touches Telegram still restores the village, and the lifecycle has to be able
+to say so. This widens nothing that matters: `RESTORATION_DETECTED` still leads
+only to `VERIFYING` or `UNVERIFIABLE`, so the sensors still decide.
+
 `TRANSITIONS` is a transcription of the `enforce_work_order_transition` trigger
 in Postgres, and `test_state_machine.py` asserts the two agree. The database is
 the authority: it rejects an illegal transition even if it arrives from outside
@@ -23,14 +30,27 @@ TRANSITIONS: dict[S, frozenset[S]] = {
     S.CLASSIFIED: frozenset({S.ASSESSED, S.TRIAGING, S.UNVERIFIABLE}),
     S.ASSESSED: frozenset({S.ASSIGNED, S.UNVERIFIABLE}),
     # Reassignment is ASSIGNED -> ASSIGNED: a new crew, same commitment.
-    S.ASSIGNED: frozenset({S.ACKNOWLEDGED, S.ASSIGNED, S.UNVERIFIABLE}),
-    S.ACKNOWLEDGED: frozenset({S.IN_REPAIR, S.ASSIGNED, S.UNVERIFIABLE}),
+    # RESTORATION_DETECTED is reachable from every dispatched state because the
+    # network can come back before the crew says anything -- see the note below.
+    S.ASSIGNED: frozenset(
+        {S.ACKNOWLEDGED, S.ASSIGNED, S.RESTORATION_DETECTED, S.UNVERIFIABLE}
+    ),
+    S.ACKNOWLEDGED: frozenset(
+        {S.IN_REPAIR, S.ASSIGNED, S.RESTORATION_DETECTED, S.UNVERIFIABLE}
+    ),
     S.IN_REPAIR: frozenset({S.RESTORATION_DETECTED, S.VERIFYING, S.UNVERIFIABLE}),
     S.RESTORATION_DETECTED: frozenset({S.VERIFYING, S.UNVERIFIABLE}),
     # The only edge into CLOSED in the entire machine.
     S.VERIFYING: frozenset({S.CLOSED, S.REOPENED, S.UNVERIFIABLE}),
     S.REOPENED: frozenset(
-        {S.TRIAGING, S.CLASSIFIED, S.ASSESSED, S.ASSIGNED, S.UNVERIFIABLE}
+        {
+            S.TRIAGING,
+            S.CLASSIFIED,
+            S.ASSESSED,
+            S.ASSIGNED,
+            S.RESTORATION_DETECTED,
+            S.UNVERIFIABLE,
+        }
     ),
     S.UNVERIFIABLE: frozenset(
         {S.TRIAGING, S.CLASSIFIED, S.ASSESSED, S.ASSIGNED, S.VERIFYING, S.REOPENED}

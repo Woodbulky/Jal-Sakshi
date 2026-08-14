@@ -134,12 +134,18 @@ async def test_a_broken_sensor_never_dispatches_a_supply_crew(
     assert state["classification"].households_affected == 0
 
 
-async def test_a_false_fixed_report_reopens_and_redispatches(
+async def test_a_false_fixed_report_reopens_and_then_closes_on_the_real_repair(
     repository: InMemoryRepository,
     agent: AgentRunner,
     work_orders: WorkOrderService,
 ) -> None:
-    """The full accountability loop, which is the product in one test."""
+    """The full accountability loop, which is the product in one test.
+
+    This is the runbook's recommended sequence — the refusal, then the clean
+    close — and for a while it could not happen: after the reopen the loop sent
+    the crew back out and then waited for a second Telegram message that was
+    never coming, so the incident could not close however well the water ran.
+    """
     now = await build_history(
         repository, fault_type=FaultType.VALVE_CLOSURE, asset_code="VLV-01"
     )
@@ -160,23 +166,32 @@ async def test_a_false_fixed_report_reopens_and_redispatches(
     assert step(state, "verify")["outcome"] == "FAILED"
     assert state["work_order"].status is WorkOrderStatus.REOPENED
 
-    # The valve is really opened. The next pass sends someone back to confirm.
+    # The valve is really opened this time, and nobody says so on Telegram.
     for injection in list(repository.fault_injections):
         await repository.clear_fault_injection(injection.id)
     third = later + timedelta(minutes=20)
     await build_history(repository, now=third)
     state = await agent.run(now=third)
 
-    assert state["work_order"].status is WorkOrderStatus.ASSIGNED
-    assert step(state, "diagnose")["reused_diagnosis"] is True
+    # Noticing opens the window; it does not close anything on its own.
+    assert step(state, "restore")["source"] == "telemetry"
+    assert state["work_order"].status is WorkOrderStatus.VERIFYING
+    assert step(state, "verify")["outcome"] == "PENDING"
+
+    fourth = third + timedelta(minutes=15)
+    await build_history(repository, now=fourth)
+    state = await agent.run(now=fourth)
+
+    assert step(state, "verify")["outcome"] == "PASSED"
+    assert state["work_order"].status is WorkOrderStatus.CLOSED
 
 
-async def test_a_reopened_order_is_never_abandoned(
+async def test_a_reopened_order_still_faulted_is_sent_back_out(
     repository: InMemoryRepository,
     agent: AgentRunner,
     work_orders: WorkOrderService,
 ) -> None:
-    """A quiet pass must not leave a reopened order with nobody on it.
+    """A reopened order must not be left with nobody on it.
 
     The state machine will not verify a REOPENED order, so if the loop ended
     here the incident would stay open forever with no crew assigned — the
@@ -192,14 +207,73 @@ async def test_a_reopened_order_is_never_abandoned(
     order = await work_orders.begin_verification(order, now=now)
     await work_orders.reopen(order, reason="still dry")
 
-    # Telemetry now reads perfectly clean, so there is no fresh diagnosis.
+    # The valve is still shut, so there is nothing to verify and somebody has
+    # to go back.
+    later = now + timedelta(minutes=20)
+    await build_history(
+        repository, fault_type=FaultType.VALVE_CLOSURE, asset_code="VLV-01", now=later
+    )
+    state = await agent.run(now=later)
+
+    assert state["work_order"].status is WorkOrderStatus.ASSIGNED
+
+
+async def test_a_repair_nobody_reports_still_closes_the_incident(
+    repository: InMemoryRepository, agent: AgentRunner
+) -> None:
+    """The crew that fixes the valve and never touches Telegram.
+
+    Restoration is observed on the instruments, so the loop must not depend on
+    a field message to reach the only path it has to CLOSED.
+    """
+    now = await build_history(
+        repository, fault_type=FaultType.VALVE_CLOSURE, asset_code="VLV-01"
+    )
+    state = await agent.run(now=now)
+    assert state["work_order"].status is WorkOrderStatus.ASSIGNED
+
     for injection in list(repository.fault_injections):
         await repository.clear_fault_injection(injection.id)
-    later = now + timedelta(minutes=20)
+    later = now + timedelta(minutes=30)
     await build_history(repository, now=later)
     state = await agent.run(now=later)
 
-    assert state["classification"] is not None  # recovered from the event
+    assert nodes(state) == ["observe", "restore", "verify", "remember"]
+    assert state["work_order"].status is WorkOrderStatus.VERIFYING
+
+    # The window has to hold before the sensors are allowed to answer.
+    last = later + timedelta(minutes=15)
+    await build_history(repository, now=last)
+    state = await agent.run(now=last)
+
+    order = state["work_order"]
+    assert order.status is WorkOrderStatus.CLOSED
+    assert order.ttwr_minutes == pytest.approx(45.0, abs=2.0)
+    # Nothing a human typed was involved, and the ledger says where it came from.
+    entries = await repository.list_decisions(work_order_id=order.id)
+    restoration = next(
+        entry for entry in entries if entry.decision.get("restoration_source")
+    )
+    assert restoration.decision["restoration_source"] == "telemetry"
+    assert restoration.decision["closes_work_order"] is False
+
+
+async def test_an_unreported_repair_is_not_declared_while_the_fault_persists(
+    repository: InMemoryRepository, agent: AgentRunner
+) -> None:
+    """Restoration is a reading, not an assumption. A dry village stays dry."""
+    now = await build_history(
+        repository, fault_type=FaultType.VALVE_CLOSURE, asset_code="VLV-01"
+    )
+    await agent.run(now=now)
+
+    later = now + timedelta(minutes=30)
+    await build_history(
+        repository, fault_type=FaultType.VALVE_CLOSURE, asset_code="VLV-01", now=later
+    )
+    state = await agent.run(now=later)
+
+    assert "restore" not in nodes(state)
     assert state["work_order"].status is WorkOrderStatus.ASSIGNED
 
 

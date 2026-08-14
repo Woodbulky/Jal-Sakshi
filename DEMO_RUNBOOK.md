@@ -1,7 +1,9 @@
 # JAL-SAKSHI — Full Loop Runbook
 
-One incident from detection to closure. Roughly 12 minutes at the default
-settings, 6 if you shorten the verification window first.
+One incident from detection to closure. Around 25 minutes at the default
+settings, or about 10 with the verification window shortened to 3 — most of
+which is the window itself plus the loop's own two-minute cadence. Drive it by
+hand (`POST /agent/run`) and it is faster than either.
 
 - Console: `https://jal-sakshi.vercel.app`
 - API: `https://jal-sakshi-api.onrender.com/api/v1` (referred to below as `$API`)
@@ -98,7 +100,7 @@ only trace is in the water.
 
 ## Step 3 — Watch detection notice
 
-Give it 60–90 seconds (2–3 ticks), then:
+Give it 60–90 seconds (detection runs on every tick, so 4–6 of them), then:
 
 ```bash
 curl -s "$API/detection/anomalies?limit=5"
@@ -117,10 +119,15 @@ UNKNOWN rather than guess.
 ## Step 4 — The agent decides
 
 **With `AGENT_AUTORUN=true` (the default) there is nothing to do here.** The
-loop advances itself every third simulator tick — roughly every 30 seconds —
-so over the next minute or two you will watch it classify → assess impact →
-open a work order → assign a crew member by skill → dispatch, one step at a
-time, without touching anything.
+loop advances itself every ninth simulator tick — at the default 15-second
+tick that is **roughly every two minutes** — so over the next few minutes you
+will watch it classify → assess impact → open a work order → assign a crew
+member by skill → dispatch, one step at a time, without touching anything.
+
+That cadence is set by `SIMULATION_TICK_SECONDS` and `AGENT_AUTORUN_EVERY_TICKS`.
+It is deliberately unhurried so a free Render instance can keep up; if you are
+presenting to a clock, drive it by hand instead (below) rather than tightening
+it and risking passes piling up on a half-CPU box.
 
 Watch for the work order code (`WO-002` or later) — you need it in step 6.
 
@@ -194,9 +201,16 @@ it. Nothing a human types can close an incident in this system.
 
 ## Step 7 — Verification starts
 
-Automatic: within ~30 seconds the status becomes `VERIFYING`. Console:
-**Verification** page shows the window opening and which sensors must agree.
-In manual mode, `curl -s -X POST $API/agent/run`.
+Automatic: on the loop's next pass — up to ~2 minutes — the status becomes
+`VERIFYING`. Console: **Verification** page shows the window opening and which
+sensors must agree. In manual mode, `curl -s -X POST $API/agent/run`.
+
+**Step 6 is optional.** The loop also starts verification on its own when
+telemetry recovers and nobody has said anything — the trace shows a `restore`
+step reading *"network reads normal again with no field report"*. Skipping the
+Telegram reply entirely and going straight to Ending B is a legitimate way to
+run this demo, and arguably a stronger one: nothing a human typed is involved
+anywhere in it.
 
 ---
 
@@ -239,8 +253,16 @@ sensor evidence rather than from someone's report.
 repair, the sensors were asked to agree, and the incident closed on their
 evidence.
 
+Expect two passes here, not one: the first notices the recovery and opens the
+window (`RESTORATION_DETECTED` → `VERIFYING`, verification `PENDING`), and a
+later one — after the full `VERIFICATION_WINDOW_MINUTES` — returns `PASSED` and
+closes. A window that closed on the same pass that opened it would not be a
+window.
+
 **Best sequence if you have the time:** run Ending A, let it reopen, *then*
 clear the fault and let it close. Three minutes, and it tells the whole story.
+After the reopen the crew is dispatched again and no second Telegram reply is
+needed — the loop picks the recovery up off the instruments.
 
 ---
 
@@ -265,6 +287,7 @@ ask why a repair was ordered and get an answer with evidence attached.
 | Anomaly but no work order | Autorun is off, or the simulator stopped | Check `AGENT_AUTORUN`; or `POST /agent/run` 3–4 times |
 | No Telegram message | n8n down, or the phone is asleep | Check `/integrations/notifications` for the status and error |
 | Reply ignored | Not a reply, and no `WO-xxx` in the text | Send `WO-002 Fixed` |
+| Stuck in `ASSIGNED`, water is back | The fault is still injected, so detection still sees it | `curl $API/simulation/injections` — clear anything active, then wait two passes |
 | Verification never resolves | Simulator stopped mid-window | Restart it; the window needs live samples |
 | Everything is slow | Render free instance woke from sleep | Hit `/health` a minute before presenting |
 

@@ -37,6 +37,20 @@ def test_a_field_report_cannot_skip_verification() -> None:
         assert not can_transition(origin, S.CLOSED)
 
 
+def test_restoration_can_be_observed_before_the_crew_reports_in() -> None:
+    """Telemetry recovering is evidence wherever the order happens to be.
+
+    Widening this was what let the loop close an incident nobody texted about.
+    It costs nothing: RESTORATION_DETECTED still leads only to VERIFYING.
+    """
+    for origin in (S.ASSIGNED, S.ACKNOWLEDGED, S.IN_REPAIR, S.REOPENED):
+        assert can_transition(origin, S.RESTORATION_DETECTED), origin
+
+    assert allowed_from(S.RESTORATION_DETECTED) == frozenset(
+        {S.VERIFYING, S.UNVERIFIABLE}
+    )
+
+
 def test_unverifiable_is_reachable_from_every_live_state() -> None:
     """Instruments can fail at any point, and saying so must always be legal."""
     for state in S:
@@ -88,12 +102,29 @@ _TRIGGER_TABLE: dict[S, set[S]] = {
     S.TRIAGING: {S.CLASSIFIED, S.UNVERIFIABLE},
     S.CLASSIFIED: {S.ASSESSED, S.TRIAGING, S.UNVERIFIABLE},
     S.ASSESSED: {S.ASSIGNED, S.UNVERIFIABLE},
-    S.ASSIGNED: {S.ACKNOWLEDGED, S.ASSIGNED, S.UNVERIFIABLE},
-    S.ACKNOWLEDGED: {S.IN_REPAIR, S.ASSIGNED, S.UNVERIFIABLE},
+    S.ASSIGNED: {
+        S.ACKNOWLEDGED,
+        S.ASSIGNED,
+        S.RESTORATION_DETECTED,
+        S.UNVERIFIABLE,
+    },
+    S.ACKNOWLEDGED: {
+        S.IN_REPAIR,
+        S.ASSIGNED,
+        S.RESTORATION_DETECTED,
+        S.UNVERIFIABLE,
+    },
     S.IN_REPAIR: {S.RESTORATION_DETECTED, S.VERIFYING, S.UNVERIFIABLE},
     S.RESTORATION_DETECTED: {S.VERIFYING, S.UNVERIFIABLE},
     S.VERIFYING: {S.CLOSED, S.REOPENED, S.UNVERIFIABLE},
-    S.REOPENED: {S.TRIAGING, S.CLASSIFIED, S.ASSESSED, S.ASSIGNED, S.UNVERIFIABLE},
+    S.REOPENED: {
+        S.TRIAGING,
+        S.CLASSIFIED,
+        S.ASSESSED,
+        S.ASSIGNED,
+        S.RESTORATION_DETECTED,
+        S.UNVERIFIABLE,
+    },
     S.UNVERIFIABLE: {
         S.TRIAGING,
         S.CLASSIFIED,

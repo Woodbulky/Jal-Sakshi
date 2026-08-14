@@ -14,23 +14,33 @@ where the incident already stands, and does the next right thing.
 
     observe ─┬─ nothing wrong ──────────────────────────────► END
              ├─ awaiting verification ─► verify ──► remember ► END
+             ├─ telemetry recovered ──► restore ► verify ────► remember ► END
              └─ new or unhandled fault ► diagnose ► assess ─┬► remember (needs
                                                             │   approval)
                                                             └► route ► dispatch
                                                                      ├► escalate
                                                                      └► remember
+
+`restore` is the branch that makes the loop closed rather than open. Without
+it the only way into verification was a crew replying "Fixed" on Telegram, so
+a repair nobody reported left the work order sitting in `ASSIGNED` while the
+sensors read perfectly normal — and after a failed verification re-dispatched
+the crew, there was no second message coming and the incident could never
+close at all. Telemetry recovering is the system's own best evidence; this is
+where the loop finally listens to it.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
 from app.agent.llm import Reasoner, StubReasoner
 from app.agent.tools import AgentTools
+from app.analytics.pipeline import STATUS_RESTORING
 from app.schemas.detection import Classification, DetectionRun, FaultEvent
 from app.schemas.simulation import FaultType
 from app.schemas.workorder import (
@@ -59,6 +69,10 @@ _IN_FLIGHT = frozenset(
 #: Statuses where nobody currently holds the order and somebody must, whether
 #: or not this pass sees fresh anomalies.
 _NEEDS_REDISPATCH = frozenset({WorkOrderStatus.REOPENED})
+#: Statuses from which observed telemetry recovery may start verification. A
+#: dispatched order at any of these points is one whose fault could plausibly
+#: have just been fixed, reported or not.
+_RESTORABLE = _IN_FLIGHT | _NEEDS_REDISPATCH
 
 
 class AgentState(TypedDict, total=False):
@@ -76,6 +90,10 @@ class AgentState(TypedDict, total=False):
     fault_event: FaultEvent | None
     work_order: WorkOrder | None
     verification: VerificationReport | None
+
+    #: Set when this pass observed the network reading normal again on an
+    #: incident somebody is still out on.
+    restored: bool
 
     #: What the agent did this pass, in order, for the console and the tests.
     trace: list[dict[str, Any]]
@@ -108,6 +126,7 @@ class AgentRunner:
         graph.add_node("route", self._route)
         graph.add_node("dispatch", self._dispatch)
         graph.add_node("escalate", self._escalate)
+        graph.add_node("restore", self._restore)
         graph.add_node("verify", self._verify)
         graph.add_node("remember", self._remember)
 
@@ -117,6 +136,7 @@ class AgentRunner:
             self._after_observe,
             {
                 "diagnose": "diagnose",
+                "restore": "restore",
                 "verify": "verify",
                 "escalate": "escalate",
                 "end": END,
@@ -135,6 +155,10 @@ class AgentRunner:
             {"escalate": "escalate", "remember": "remember"},
         )
         graph.add_edge("escalate", "remember")
+        # Noticing restoration and acting on it are one pass: an order left in
+        # RESTORATION_DETECTED until the next tick is an order whose window has
+        # not started, and the whole point is to start the clock now.
+        graph.add_edge("restore", "verify")
         graph.add_edge("verify", "remember")
         graph.add_edge("remember", END)
         return graph.compile()
@@ -168,12 +192,15 @@ class AgentRunner:
         if current is not None:
             current = await self._work_orders.check_sla(current, now=now)
 
+        restored = await self._restoration_observed(current, run, now=now)
+
         return {
             **state,
             "detection": run,
             "classification": run.classification,
             "fault_event": run.fault_event,
             "work_order": current,
+            "restored": restored,
             "trace": [
                 *state["trace"],
                 _step(
@@ -184,14 +211,55 @@ class AgentRunner:
                     if run.classification
                     else None,
                     open_work_orders=len(open_orders),
+                    restoration_observed=restored or None,
                 ),
             ],
         }
+
+    async def _restoration_observed(
+        self, order: WorkOrder | None, run: DetectionRun, *, now: datetime
+    ) -> bool:
+        """Has the network come back on an incident somebody is still out on?
+
+        Two things must hold, because declaring restoration starts a
+        verification that can reopen the order and message the crew again:
+
+        1. this pass found no anomalies at all, and
+        2. detection reads *this incident's own* fault event as `RESTORING` --
+           not merely that the network is quiet somewhere else.
+
+        Neither is treated as proof. All this does is start the window; the
+        verification behind it still has to watch the network hold for the
+        whole window before anything closes, which is what actually rules out
+        a single lucky sample.
+
+        The cooldown stops a network that reads clean while verification keeps
+        failing from re-declaring restoration every thirty seconds: at worst it
+        retries once a window, which is also the soonest a retry could tell
+        anyone anything new.
+        """
+        if order is None or order.status not in _RESTORABLE or run.anomalies:
+            return False
+        if order.restoration_detected_at is not None:
+            cooldown = timedelta(
+                minutes=self._work_orders.verification_window_minutes
+            )
+            if now - order.restoration_detected_at < cooldown:
+                return False
+        if not order.fault_event_id:
+            return False
+        event = await self._tools.get_fault_event(order.fault_event_id)
+        return event is not None and event.status == STATUS_RESTORING
 
     def _after_observe(self, state: AgentState) -> str:
         order = state.get("work_order")
         if order is not None and order.status in _AWAITING_VERIFICATION:
             return "verify"
+        if order is not None and state.get("restored"):
+            # Ahead of both escalation and re-dispatch on purpose. Sending a
+            # crew to a village whose water is already back, or escalating to a
+            # sarpanch over it, is the wrong thing to do with this evidence.
+            return "restore"
         if order is not None and order.sla_breached and order.status in _IN_FLIGHT:
             return "escalate"
         if order is not None and order.status in _IN_FLIGHT:
@@ -435,6 +503,39 @@ class AgentRunner:
                     to_role=escalation.to_role.value,
                     reason=reason,
                     sla_breach_minutes=escalation.sla_breach_minutes,
+                ),
+            ],
+        }
+
+    async def _restore(self, state: AgentState) -> AgentState:
+        """Telemetry recovered with nobody reporting it. Start the window."""
+        now = state["now"]
+        order = state["work_order"]
+        run = state.get("detection")
+        evidence = {
+            "source": "telemetry",
+            "anomalies": 0,
+            "sensors_checked": run.sensors_checked if run else None,
+            "untrusted_sensors": run.untrusted_sensors if run else [],
+            "observed_at": now.isoformat(),
+        }
+        order = await self._work_orders.record_sensor_restoration(
+            order, evidence=evidence, now=now
+        )
+        return {
+            **state,
+            "work_order": order,
+            "trace": [
+                *state["trace"],
+                _step(
+                    "restore",
+                    work_order=order.wo_code,
+                    status=order.status.value,
+                    source="telemetry",
+                    detail=(
+                        "network reads normal again with no field report; "
+                        "verification window opened"
+                    ),
                 ),
             ],
         }

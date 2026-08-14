@@ -76,6 +76,16 @@ class WorkOrderService:
         self._notifier = notifier
         self._events = events
 
+    @property
+    def verification_window_minutes(self) -> float:
+        """How long restoration must hold before a verdict is possible.
+
+        Read from the configured verification service so callers that need to
+        pace themselves against the window -- the agent loop, deciding how
+        often it may re-declare restoration -- do not have to guess at it.
+        """
+        return float(getattr(self._verification, "window_minutes", 20.0) or 20.0)
+
     # -- opening -----------------------------------------------------------
     async def open_for_fault(
         self,
@@ -439,6 +449,55 @@ class WorkOrderService:
                 "verification and does not close the work order"
             ),
             now=now,
+        )
+        return updated
+
+    async def record_sensor_restoration(
+        self,
+        order: WorkOrder,
+        *,
+        evidence: dict[str, Any] | None = None,
+        now: datetime | None = None,
+    ) -> WorkOrder:
+        """The instruments say the network is well again. Open the window.
+
+        The counterpart to `record_field_update`, for the repair nobody
+        reports: a valve reopened by a farmer, a pump restarted when the power
+        came back, a crew that fixed the main and never touched Telegram.
+        Without this the loop was deaf to its own best evidence -- telemetry
+        could read perfectly normal for hours while the work order sat in
+        `ASSIGNED` waiting for a message that was never going to arrive, and
+        the one path to `CLOSED` stayed shut.
+
+        It carries exactly as much authority as a field report, which is to say
+        none. All it does is start the clock. `VerificationService` still has to
+        watch the network hold steady for the whole window, on instruments it
+        trusts, before anything closes -- and if the recovery was a fluke, the
+        verification that follows fails and the order reopens.
+        """
+        now = now or datetime.now(timezone.utc)
+        updated = await self._transition(
+            order,
+            WorkOrderStatus.RESTORATION_DETECTED,
+            fields={"restoration_detected_at": now},
+            decision={
+                "restoration_source": "telemetry",
+                "claims_restoration": True,
+                "closes_work_order": False,
+            },
+            evidence=evidence,
+            notes=(
+                "telemetry reads normal again with no field report; this starts "
+                "sensor verification and does not close the work order"
+            ),
+            now=now,
+        )
+        await self._publish(
+            "restoration.observed",
+            work_order_id=updated.id,
+            wo_code=updated.wo_code,
+            source="telemetry",
+            closes_work_order=False,
         )
         return updated
 
